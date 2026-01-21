@@ -13,16 +13,22 @@ ARG PYTHON_VERSION=3.10
 ARG BUILDKITE_BAZEL_CACHE_URL
 ARG BUILDKITE_CACHE_READONLY
 ARG HOSTTYPE
+ARG CACHE_DIR=/home/forge/.cache/bazel
+
+ENV BUILDKITE_BAZEL_CACHE_URL=${BUILDKITE_BAZEL_CACHE_URL}
+ENV BUILDKITE_CACHE_READONLY=${BUILDKITE_CACHE_READONLY}
+ENV CACHE_DIR=${CACHE_DIR}
 
 WORKDIR /home/forge/ray
 
 COPY . .
 
-# Mounting cache dir for faster local rebuilds (architecture-specific to avoid toolchain conflicts)
-RUN --mount=type=cache,target=/home/forge/.cache,uid=2000,gid=100,id=bazel-cache-${HOSTTYPE}-${PYTHON_VERSION} \
+RUN --mount=type=cache,target=${CACHE_DIR},uid=2000,gid=100,id=ray-bazel-cache-${HOSTTYPE}-py${PYTHON_VERSION} \
     <<'EOF'
 #!/bin/bash
 set -euo pipefail
+
+export BAZELISK_HOME=$CACHE_DIR/bazelisk
 
 PY_CODE="${PYTHON_VERSION//./}"
 PY_BIN="cp${PY_CODE}-cp${PY_CODE}"
@@ -31,13 +37,16 @@ export RAY_BUILD_ENV="manylinux_py${PY_BIN}"
 sudo ln -sf "/opt/python/${PY_BIN}/bin/python3" /usr/local/bin/python3
 sudo ln -sf /usr/local/bin/python3 /usr/local/bin/python
 
-if [[ "${BUILDKITE_CACHE_READONLY:-}" == "true" ]]; then
-  echo "build --remote_upload_local_results=false" >> "$HOME/.bazelrc"
+BAZEL_CACHE_ARGS=""
+if [[ -z "${BUILDKITE_BAZEL_CACHE_URL:-}" ]]; then
+  # Disable remote cache for local builds (no credentials)
+  BAZEL_CACHE_ARGS="--remote_cache="
+elif [[ "${BUILDKITE_CACHE_READONLY:-}" == "true" ]]; then
+  # Read-only mode: disable uploads only
+  BAZEL_CACHE_ARGS="--remote_upload_local_results=false"
 fi
 
-echo "build --repository_cache=/home/forge/.cache/bazel-repo" >> "$HOME/.bazelrc"
-
-bazelisk build --config=ci //cpp:ray_cpp_pkg_zip
+bazelisk build --config=ci --repository_cache=$CACHE_DIR/repo $BAZEL_CACHE_ARGS //cpp:ray_cpp_pkg_zip
 
 cp bazel-bin/cpp/ray_cpp_pkg.zip /home/forge/ray_cpp_pkg.zip
 

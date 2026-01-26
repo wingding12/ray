@@ -9,7 +9,6 @@ ARG HOSTTYPE=x86_64
 ARG MANYLINUX_VERSION
 FROM rayproject/manylinux2014:${MANYLINUX_VERSION}-jdk-${HOSTTYPE} AS builder
 
-ARG PYTHON_VERSION=3.10
 ARG BUILDKITE_BAZEL_CACHE_URL
 ARG BUILDKITE_CACHE_READONLY
 ARG HOSTTYPE
@@ -23,19 +22,14 @@ WORKDIR /home/forge/ray
 
 COPY . .
 
-RUN --mount=type=cache,target=${CACHE_DIR},uid=2000,gid=100,id=ray-bazel-cache-${HOSTTYPE}-py${PYTHON_VERSION} \
+RUN --mount=type=cache,target=${CACHE_DIR},uid=2000,gid=100,id=ray-bazel-cache-${HOSTTYPE} \
     <<'EOF'
 #!/bin/bash
 set -euo pipefail
 
 export BAZELISK_HOME=$CACHE_DIR/bazelisk
 
-PY_CODE="${PYTHON_VERSION//./}"
-PY_BIN="cp${PY_CODE}-cp${PY_CODE}"
-export RAY_BUILD_ENV="manylinux_py${PY_BIN}"
-
-sudo ln -sf "/opt/python/${PY_BIN}/bin/python3" /usr/local/bin/python3
-sudo ln -sf /usr/local/bin/python3 /usr/local/bin/python
+export RAY_BUILD_ENV="manylinux"
 
 BAZEL_CACHE_ARGS=""
 if [[ -z "${BUILDKITE_BAZEL_CACHE_URL:-}" ]]; then
